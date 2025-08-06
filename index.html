@@ -4,9 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Set Your Password</title>
-    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Inter Font -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
@@ -29,7 +27,7 @@
         <h1 class="text-3xl font-bold text-gray-800 mb-6 text-center">Set Your Password</h1>
         <p id="emailDisplay" class="text-center text-gray-600 mb-6"></p>
 
-        <form id="passwordForm" class="space-y-6">
+        <form id="passwordForm" class="space-y-6" style="display: none;">
             <div>
                 <label for="password" class="block text-sm font-medium text-gray-700 mb-1">New Password</label>
                 <input
@@ -55,64 +53,52 @@
             </div>
             <button
                 type="submit"
+                id="submitButton"
                 class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out"
             >
                 Set Password
             </button>
         </form>
-        <div id="message" class="mt-6 text-center text-base font-medium"></div>
+        <div id="message" class="mt-6 text-center text-base font-medium">Loading...</div>
     </div>
 
-    <!-- Supabase JS CDN -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
         // Replace with your actual Supabase URL and Public Anon Key
         const SUPABASE_URL = 'https://szsthxzmncofgmxzfikx.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN6c3RoeHptbmNvZmdteHpmaWt4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ0MjMyNDYsImV4cCI6MjA2OTk5OTI0Nn0.OURtIZZpV0CFMiMSLsEIb6iXNj-aWrD9zmY-XRHsQnY';
 
-        const supabase = Supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        // MODIFIED: Use lowercase 'supabase'
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         const passwordForm = document.getElementById('passwordForm');
+        const submitButton = document.getElementById('submitButton');
         const messageDiv = document.getElementById('message');
         const emailDisplay = document.getElementById('emailDisplay');
+        let userIsAuthenticated = false;
 
-        // Function to display messages
         function showMessage(text, isError = false) {
             messageDiv.textContent = text;
             messageDiv.className = `mt-6 text-center text-base font-medium ${isError ? 'text-red-600' : 'text-green-600'}`;
         }
 
-        // On page load, check if a session exists (meaning they clicked the magic link)
-        document.addEventListener('DOMContentLoaded', async () => {
-            try {
-                // Supabase automatically parses tokens from the URL hash on page load
-                // and attempts to establish a session.
-                const { data: { user }, error } = await supabase.auth.getUser();
-
-                if (error) {
-                    console.error('Error getting user:', error.message);
-                    showMessage('Error loading user information. Please ensure you clicked the correct invitation link.', true);
-                    passwordForm.style.display = 'none'; // Hide form if there's an error
-                    return;
-                }
-
-                if (user) {
-                    emailDisplay.textContent = `Welcome, ${user.email}!`;
-                    passwordForm.style.display = 'block'; // Show form
-                } else {
-                    showMessage('Please use the invitation link sent to your email to set your password.', false);
-                    passwordForm.style.display = 'none'; // Hide form if no user session
-                }
-            } catch (err) {
-                console.error('Unexpected error during initial load:', err.message);
-                showMessage('An unexpected error occurred. Please try again later.', true);
-                passwordForm.style.display = 'none';
+        // MODIFIED: Use onAuthStateChange for a more reliable flow
+        supabaseClient.auth.onAuthStateChange(async (event, session) => {
+            if (event === 'SIGNED_IN' || (event === 'INITIAL_SESSION' && session)) {
+                const user = session.user;
+                emailDisplay.textContent = `Welcome, ${user.email}!`;
+                passwordForm.style.display = 'block';
+                messageDiv.style.display = 'none';
+                userIsAuthenticated = true;
             }
         });
-
-        // Handle password form submission
+        
         passwordForm.addEventListener('submit', async (event) => {
-            event.preventDefault(); // Prevent default form submission
+            event.preventDefault();
+            if (!userIsAuthenticated) {
+                showMessage('Session expired or invalid. Please use the link from your email again.', true);
+                return;
+            }
 
             const newPassword = document.getElementById('password').value;
             const confirmPassword = document.getElementById('confirm-password').value;
@@ -121,32 +107,29 @@
                 showMessage('Passwords do not match.', true);
                 return;
             }
-
-            if (newPassword.length < 6) { // Supabase default minimum password length is 6
+            if (newPassword.length < 6) {
                 showMessage('Password must be at least 6 characters long.', true);
                 return;
             }
+            
+            submitButton.disabled = true;
+            submitButton.textContent = 'Setting password...';
 
             try {
-                // The user is already authenticated via the magic link token in the URL hash.
-                // We just need to update their password.
-                const { data, error } = await supabase.auth.updateUser({
+                const { error } = await supabaseClient.auth.updateUser({
                     password: newPassword
                 });
 
-                if (error) {
-                    throw error;
-                }
-
-                showMessage('Password set successfully! You are now logged in.', false);
-                // Optionally, you can redirect the user to a dashboard or home page
-                // setTimeout(() => {
-                //     window.location.href = '/dashboard'; // Replace with your desired redirect path
-                // }, 2000);
+                if (error) throw error;
+                
+                showMessage('Password set successfully! You can now close this page and log in on the app.', false);
+                passwordForm.style.display = 'none'; // Hide form on success
 
             } catch (error) {
                 console.error('Error setting password:', error.message);
                 showMessage(`Error: ${error.message}`, true);
+                submitButton.disabled = false;
+                submitButton.textContent = 'Set Password';
             }
         });
     </script>
